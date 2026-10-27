@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<meta name="referrer" content="no-referrer">
+<title>Prestige Remote</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #0b0d12; --card: #161a24; --card-2: #1f2432; --line: rgba(255,255,255,.08);
+    --text: #f2f4f8; --text-2: #aab2c2; --accent: #5ee6c0; --accent-ink: #06110e; --danger: #ff6f7d; --ok: #59d499;
+    --r: 18px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  h1 { font-size: 20px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  .logo { width: 32px; height: 32px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; }
+  .pill { font-size: 13px; padding: 5px 10px; border-radius: 999px; background: var(--card); color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #777; }
+  .pill.ok .dot { background: var(--ok); } .pill.bad .dot { background: var(--danger); } .pill.wait .dot { background: #f5c451; }
+  .card { background: var(--card); border-radius: var(--r); padding: 14px; margin-bottom: 14px; border: 1px solid var(--line); }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; gap: 8px; }
+  input[type=url] { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  input[type=url]:focus { outline: 2px solid var(--accent); }
+  button { font: inherit; color: var(--text); background: var(--card-2); border: 0; border-radius: 12px; padding: 12px 14px; cursor: pointer; touch-action: manipulation; user-select: none; }
+  button:active { transform: scale(.96); background: #2a3042; }
+  button.primary { background: var(--accent); color: var(--accent-ink); font-weight: 650; }
+  button:disabled { opacity: .45; }
+  .now { font-size: 15px; color: var(--text-2); min-height: 22px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now b { color: var(--text); }
+  .transport { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .transport button { padding: 14px 0; font-size: 18px; }
+  .transport .big { background: var(--accent); color: var(--accent-ink); }
+  .dpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 300px; margin: 0 auto; }
+  .dpad button { height: 72px; font-size: 22px; }
+  .dpad .ok { border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 18px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+  .grid4 button { font-size: 14px; padding: 12px 4px; }
+  .recent { list-style: none; margin: 0; padding: 0; }
+  .recent li { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 8px 0; }
+  .recent li:first-child { border-top: 0; }
+  .recent .go { flex: 1; min-width: 0; text-align: left; background: transparent; padding: 6px 0; }
+  .recent .go span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recent .go small { color: var(--text-2); }
+  .recent .x { padding: 8px 12px; background: transparent; color: var(--text-2); }
+  .muted { color: var(--text-2); font-size: 13px; }
+  .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px); opacity: 0; background: #262c3b; padding: 10px 16px; border-radius: 12px; transition: .2s; pointer-events: none; max-width: 90vw; }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+  .toast.err { background: #4a1f27; }
+  .pair { text-align: center; padding: 30px 12px; }
+  .pair p { color: var(--text-2); }
+  details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="logo">P</span> Prestige Remote</h1>
+  <span class="pill wait" id="conn"><span class="dot"></span><span id="connText">Connecting…</span></span>
+</header>
+
+<div id="unpaired" class="card pair" hidden>
+  <h2 style="text-align:center">Not paired yet</h2>
+  <p>On the TV open <b>Prestige › Phone remote</b> (on Home, or in Settings) and scan the QR code with this phone's camera.</p>
+</div>
+
+<main id="app" hidden>
+  <section class="card">
+    <h2>Play on TV</h2>
+    <form class="row" id="linkForm" autocomplete="off">
+      <input type="url" id="link" placeholder="Paste a video, stream or playlist link" inputmode="url" required>
+      <button type="button" id="paste" title="Paste">Paste</button>
+    </form>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="playBtn" style="flex:1">▶ Play on TV</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Now playing</h2>
+    <div class="now" id="now">Nothing playing</div>
+    <div class="transport">
+      <button data-cmd='{"type":"seek","ms":-30000}'>⏪30</button>
+      <button data-cmd='{"type":"seek","ms":-10000}'>−10</button>
+      <button class="big" data-cmd='{"type":"toggle"}' id="toggle">⏯</button>
+      <button data-cmd='{"type":"seek","ms":10000}'>+10</button>
+      <button data-cmd='{"type":"seek","ms":30000}'>30⏩</button>
+    </div>
+    <div class="grid4">
+      <button data-cmd='{"type":"stop"}'>⏹ Stop</button>
+      <button data-cmd='{"type":"key","key":"channelDown"}'>Prev</button>
+      <button data-cmd='{"type":"key","key":"channelUp"}'>Next</button>
+      <button data-cmd='{"type":"key","key":"back"}'>↩ Back</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Remote</h2>
+    <div class="dpad">
+      <span></span><button data-cmd='{"type":"key","key":"up"}'>▲</button><span></span>
+      <button data-cmd='{"type":"key","key":"left"}'>◀</button>
+      <button class="ok" data-cmd='{"type":"key","key":"enter"}'>OK</button>
+      <button data-cmd='{"type":"key","key":"right"}'>▶</button>
+      <span></span><button data-cmd='{"type":"key","key":"down"}'>▼</button><span></span>
+    </div>
+    <div class="grid4">
+      <button data-cmd='{"type":"go","screen":"home"}'>Home</button>
+      <button data-cmd='{"type":"go","screen":"media"}'>Media</button>
+      <button data-cmd='{"type":"go","screen":"apps"}'>Apps</button>
+      <button data-cmd='{"type":"key","key":"back"}'>Back</button>
+    </div>
+    <div class="grid4" id="volRow">
+      <button data-cmd='{"type":"volume","dir":"down"}'>🔉 −</button>
+      <button data-cmd='{"type":"volume","dir":"mute"}'>🔇</button>
+      <button data-cmd='{"type":"volume","dir":"up"}'>🔊 +</button>
+      <button disabled id="volLevel">Vol –</button>
+    </div>
+  </section>
+
+  <section class="card" id="recentCard" hidden>
+    <h2>Recent links</h2>
+    <ul class="recent" id="recent"></ul>
+  </section>
+
+  <details class="card">
+    <summary>About & privacy</summary>
+    <p class="muted">Commands travel through the free public relay ntfy.sh, addressed by the secret code from your TV's QR code. Anyone with that code could control Prestige; create a new code on the TV (Settings › Phone remote) to revoke it. Links you send pass through the relay.</p>
+    <p class="muted">Works while Prestige is open on the TV. To switch the TV on or off, use Samsung's SmartThings app. Tip: add this page to your home screen; on Android you can then share links straight to it.</p>
+    <p><button id="forget">Unpair this phone</button></p>
+  </details>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var RELAY = 'ntfy.sh', PREFIX = 'prestige';
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---- pairing: the secret comes in the URL fragment (never sent to any server)
+  var secret = null;
+  var m = /[#&]s=([A-Za-z0-9]{16,40})/.exec(location.hash);
+  try {
+    // The fragment stays in the address bar so "Add to Home Screen" keeps the pairing on iOS too.
+    if (m) { localStorage.setItem('prestige.secret', m[1]); }
+    secret = localStorage.getItem('prestige.secret');
+  } catch (e) { secret = m ? m[1] : null; }
+  if (!secret) { $('unpaired').hidden = false; $('conn').hidden = true; return; }
+  $('app').hidden = false;
+  var cmdTopic = PREFIX + '-' + secret + '-cmd', tvTopic = PREFIX + '-' + secret + '-tv';
+
+  // ---- UI helpers
+  var toastTimer;
+  function toast(text, err) {
+    var t = $('toast'); t.textContent = text; t.className = 'toast show' + (err ? ' err' : '');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = 'toast'; }, 2600);
+  }
+  function setConn(kind, text) { $('conn').className = 'pill ' + kind; $('connText').textContent = text; }
+
+  // ---- send a command
+  function send(cmd) {
+    cmd.v = 1;
+    if (navigator.vibrate) { navigator.vibrate(12); }
+    return fetch('https://' + RELAY + '/' + cmdTopic, { method: 'POST', body: JSON.stringify(cmd), headers: { 'Cache': 'no' } })
+      .then(function (r) {
+        if (r.status === 429) { toast('Too many presses — wait a few seconds', true); return false; }
+        if (!r.ok) { toast('Relay error ' + r.status, true); return false; }
+        return true;
+      }, function () { toast('No internet connection on this phone', true); return false; });
+  }
+
+  document.querySelectorAll('[data-cmd]').forEach(function (b) {
+    b.addEventListener('click', function () { send(JSON.parse(b.getAttribute('data-cmd'))); });
+  });
+
+  // ---- links
+  function firstLink(text) { var r = /https?:\/\/[^\s<>"']+/i.exec(text || ''); return r ? r[0] : null; }
+  function recent() { try { return JSON.parse(localStorage.getItem('prestige.recent') || '[]'); } catch (e) { return []; } }
+  function saveRecent(list) { try { localStorage.setItem('prestige.recent', JSON.stringify(list.slice(0, 15))); } catch (e) {} renderRecent(); }
+  function titleOf(url) {
+    var p = url.split(/[?#]/)[0].split('/').filter(Boolean); var last = decodeURIComponent(p[p.length - 1] || url);
+    return last.replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[_+.-]+/g, ' ').trim() || url;
+  }
+  function renderRecent() {
+    var list = recent(), ul = $('recent'); ul.innerHTML = '';
+    $('recentCard').hidden = !list.length;
+    list.forEach(function (url, i) {
+      var li = document.createElement('li');
+      var go = document.createElement('button'); go.className = 'go';
+      go.innerHTML = '<span></span><small></small>';
+      go.firstChild.textContent = titleOf(url); go.lastChild.textContent = url.replace(/^https?:\/\//, '');
+      go.onclick = function () { play(url); };
+      var x = document.createElement('button'); x.className = 'x'; x.textContent = '✕'; x.title = 'Remove';
+      x.onclick = function () { var l = recent(); l.splice(i, 1); saveRecent(l); };
+      li.appendChild(go); li.appendChild(x); ul.appendChild(li);
+    });
+  }
+  function play(url) {
+    send({ type: 'play', url: url }).then(function (ok) {
+      if (!ok) { return; }
+      toast('Sent to TV ▶');
+      saveRecent([url].concat(recent().filter(function (u) { return u !== url; })));
+    });
+  }
+  $('playBtn').onclick = function () {
+    var raw = $('link').value.trim();
+    var url = firstLink(raw) || (raw && !/\s/.test(raw) ? 'https://' + raw.replace(/^\/+/, '') : null);
+    if (!url) { toast('Paste a link first', true); return; }
+    $('link').value = '';
+    play(url);
+  };
+  $('linkForm').onsubmit = function (e) { e.preventDefault(); $('playBtn').click(); };
+  $('paste').onclick = function () {
+    if (!navigator.clipboard || !navigator.clipboard.readText) { $('link').focus(); toast('Long-press the box and choose Paste'); return; }
+    navigator.clipboard.readText().then(function (t) { $('link').value = firstLink(t) || t.trim(); }, function () { $('link').focus(); toast('Long-press the box and choose Paste'); });
+  };
+  $('forget').onclick = function () { try { localStorage.removeItem('prestige.secret'); } catch (e) {} location.reload(); };
+
+  // Links shared from other apps (Web Share Target, when installed to the home screen).
+  var q = new URLSearchParams(location.search);
+  var shared = firstLink([q.get('url'), q.get('text'), q.get('title')].join(' '));
+  if (shared) { $('link').value = shared; history.replaceState(null, '', location.pathname + location.hash); toast('Link received — tap Play on TV'); }
+  renderRecent();
+
+  // ---- status from the TV
+  var ws, lastStatus = 0, retry = 0, helloTimer;
+  function showStatus(s) {
+    lastStatus = Date.now();
+    setConn('ok', 'TV online');
+    var p = s.playing;
+    $('now').innerHTML = p ? (p.paused ? '⏸ ' : '▶ ') + '<b></b>' : 'Nothing playing · on ' + (s.screen || 'Prestige');
+    if (p) { $('now').querySelector('b').textContent = p.title; }
+    $('volLevel').textContent = s.volume ? (s.volume.muted ? 'Muted' : 'Vol ' + s.volume.level) : 'Vol –';
+    $('volRow').style.opacity = s.volume ? 1 : 0.5;
+  }
+  function connect() {
+    setConn('wait', 'Connecting…');
+    ws = new WebSocket('wss://' + RELAY + '/' + tvTopic + '/ws');
+    ws.onmessage = function (ev) {
+      var msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.event === 'open') {
+        retry = 0;
+        setConn('wait', 'Looking for TV…');
+        send({ type: 'hello' });
+        clearTimeout(helloTimer);
+        helloTimer = setTimeout(function () {
+          if (Date.now() - lastStatus > 6000) { setConn('bad', 'TV not found'); toast('Open Prestige on the TV, then reload this page', true); }
+        }, 6000);
+        return;
+      }
+      if (msg.event !== 'message') { return; }
+      var s; try { s = JSON.parse(msg.message); } catch (e) { return; }
+      if (s && s.type === 'status') { showStatus(s); }
+    };
+    ws.onclose = function () { setConn('bad', 'Reconnecting…'); setTimeout(connect, Math.min(30000, 1500 * Math.pow(2, retry++))); };
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && ws && ws.readyState === 1) { send({ type: 'hello' }); }
+  });
+  connect();
+
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(function () {}); }
+}());
+</script>
+</body>
+</html>
