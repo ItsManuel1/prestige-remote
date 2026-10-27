@@ -55,6 +55,11 @@
   .toast.show { opacity: 1; transform: translateX(-50%); }
   .toast.err { background: #4a1f27; }
   .pair { text-align: center; padding: 30px 12px; }
+  #preview { width: 100%; max-height: 240px; border-radius: 12px; background: #000; margin-top: 10px; }
+  .castStatus { font-size: 14px; color: var(--text-2); margin-top: 8px; min-height: 20px; }
+  .castStatus.ok { color: var(--ok); } .castStatus.err { color: var(--danger); }
+  .fileName { font-size: 14px; color: var(--text-2); margin-top: 8px; word-break: break-all; }
+  label.chk { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); margin-top: 8px; }
   .pair p { color: var(--text-2); }
   details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
 </style>
@@ -80,6 +85,23 @@
     <div class="row" style="margin-top:8px">
       <button class="primary" id="playBtn" style="flex:1">▶ Play on TV</button>
     </div>
+  </section>
+
+  <section class="card" id="castCard">
+    <h2>Play a file from this device</h2>
+    <input type="file" id="file" accept="video/*,audio/*" hidden>
+    <div class="row">
+      <button id="pick" style="flex:1">📁 Choose a video or song</button>
+    </div>
+    <div class="fileName" id="fileName"></div>
+    <video id="preview" controls playsinline hidden></video>
+    <label class="chk" id="soundRow" hidden><input type="checkbox" id="localSound"> Also play the sound on this device</label>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="castBtn" style="flex:1" disabled>📺 Cast to TV</button>
+      <button id="stopCast" hidden>Stop</button>
+    </div>
+    <div class="castStatus" id="castStatus"></div>
+    <p class="muted" style="margin:8px 0 0">The file plays here and streams to the TV over your Wi-Fi, so anything this device can play works. Pause and seek with the player above. Keep this page open while casting.</p>
   </section>
 
   <section class="card">
@@ -229,6 +251,166 @@
   if (shared) { $('link').value = shared; history.replaceState(null, '', location.pathname + location.hash); toast('Link received — tap Play on TV'); }
   renderRecent();
 
+  // ---- cast a local file over WebRTC (the TV shows it; media flows over the LAN)
+  var CHUNK = 3000;
+  var cast = { pc: null, id: null, raf: 0, audio: null, wake: null, parts: {} };
+  var preview = $('preview');
+  function castMsg(text, cls) { $('castStatus').textContent = text || ''; $('castStatus').className = 'castStatus' + (cls ? ' ' + cls : ''); }
+  if (!('RTCPeerConnection' in window)) { $('castCard').hidden = true; }
+
+  $('pick').onclick = function () { $('file').click(); };
+  $('file').onchange = function () {
+    var f = $('file').files[0];
+    if (!f) { return; }
+    if (cast.pc) { stopCast(true); }
+    if (preview.src) { URL.revokeObjectURL(preview.src); }
+    preview.src = URL.createObjectURL(f);
+    preview.hidden = false;
+    $('soundRow').hidden = false;
+    $('fileName').textContent = f.name + ' · ' + (f.size / 1048576).toFixed(1) + ' MB';
+    $('castBtn').disabled = false;
+    castMsg('');
+    preview.onerror = function () { castMsg('This device cannot play this file, so it cannot be cast.', 'err'); $('castBtn').disabled = true; };
+  };
+  $('localSound').onchange = function () { preview.muted = !$('localSound').checked; };
+
+  function capture(v) {
+    if (v.captureStream) { return v.captureStream(); }
+    if (v.mozCaptureStream) { return v.mozCaptureStream(); }
+    // Safari: draw frames to a canvas and route the sound through Web Audio.
+    var c = document.createElement('canvas');
+    c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
+    var g = c.getContext('2d');
+    (function draw() { g.drawImage(v, 0, 0, c.width, c.height); cast.raf = requestAnimationFrame(draw); }());
+    var s = c.captureStream(30);
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      cast.audio = new AC();
+      var dest = cast.audio.createMediaStreamDestination();
+      cast.audio.createMediaElementSource(v).connect(dest);
+      dest.stream.getAudioTracks().forEach(function (t) { s.addTrack(t); });
+    } catch (e) { /* video only */ }
+    return s;
+  }
+
+  function preferH264(pc) {
+    if (!window.RTCRtpTransceiver || !RTCRtpTransceiver.prototype.setCodecPreferences || !RTCRtpSender.getCapabilities) { return; }
+    var caps = RTCRtpSender.getCapabilities('video');
+    if (!caps) { return; }
+    var h264 = caps.codecs.filter(function (c) { return /h264/i.test(c.mimeType); });
+    var rest = caps.codecs.filter(function (c) { return !/h264/i.test(c.mimeType); });
+    pc.getTransceivers().forEach(function (t) {
+      if (t.sender && t.sender.track && t.sender.track.kind === 'video') { try { t.setCodecPreferences(h264.concat(rest)); } catch (e) {} }
+    });
+  }
+
+  function waitIce(pc, ms) {
+    return new Promise(function (resolve) {
+      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+      var t = setTimeout(resolve, ms);
+      pc.addEventListener('icegatheringstatechange', function () { if (pc.iceGatheringState === 'complete') { clearTimeout(t); resolve(); } });
+    });
+  }
+
+  function startCast() {
+    if (!preview.src) { return; }
+    preview.muted = !$('localSound').checked;
+    if (preview.ended) { preview.currentTime = 0; }
+    $('castBtn').disabled = true;
+    castMsg('Starting…');
+    preview.play().then(function () {
+      var stream = capture(preview);
+      if (!stream.getTracks().length) { throw new Error('nothing to stream'); }
+      var id = (Math.random().toString(36).slice(2, 10) + Date.now().toString(36)).replace(/[^a-z0-9]/gi, '').slice(0, 20);
+      var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      cast.pc = pc; cast.id = id;
+      stream.getTracks().forEach(function (t) { pc.addTrack(t, stream); });
+      // When the video reaches its end the browser ends the captured tracks.
+      // On the next play, capture again and swap the fresh tracks in.
+      cast.refresh = function () {
+        if (cast.pc !== pc) { return; }
+        var senders = pc.getSenders();
+        if (!senders.some(function (x) { return x.track && x.track.readyState === 'ended'; })) { return; }
+        var fresh = preview.captureStream ? preview.captureStream() : null;
+        if (!fresh) { return; }
+        fresh.getTracks().forEach(function (t) {
+          var snd = senders.filter(function (x) { return x.track && x.track.kind === t.kind; })[0];
+          if (snd) { snd.replaceTrack(t).catch(function () {}); }
+        });
+      };
+      preferH264(pc);
+      pc.onconnectionstatechange = function () {
+        if (cast.pc !== pc) { return; }
+        if (pc.connectionState === 'connected') { castMsg('Casting to TV ✓', 'ok'); }
+        if (pc.connectionState === 'failed') { castMsg('Could not reach the TV directly. Phone and TV must be on the same Wi-Fi.', 'err'); }
+      };
+      return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
+        .then(function () { return waitIce(pc, 3000); })
+        .then(function () {
+          // Raise the quality ceiling: local Wi-Fi has plenty of bandwidth.
+          pc.getSenders().forEach(function (snd) {
+            if (!snd.track || snd.track.kind !== 'video' || !snd.getParameters) { return; }
+            var prm = snd.getParameters();
+            if (!prm.encodings || !prm.encodings.length) { prm.encodings = [{}]; }
+            prm.encodings[0].maxBitrate = 8000000;
+            snd.setParameters(prm).catch(function () {});
+          });
+          var sdp = pc.localDescription.sdp, total = Math.ceil(sdp.length / CHUNK), chain = Promise.resolve(true);
+          for (var i = 0; i < total; i++) {
+            (function (i) {
+              chain = chain.then(function (ok) { return ok && send({ type: 'cast-offer', id: id, part: i, total: total, data: sdp.slice(i * CHUNK, (i + 1) * CHUNK) }); });
+            }(i));
+          }
+          return chain;
+        }).then(function (ok) {
+          if (!ok) { throw new Error('relay'); }
+          castMsg('Waiting for the TV…');
+          $('stopCast').hidden = false;
+          if (navigator.wakeLock) { navigator.wakeLock.request('screen').then(function (l) { cast.wake = l; }, function () {}); }
+          setTimeout(function () {
+            if (cast.pc === pc && pc.connectionState !== 'connected') { castMsg('The TV did not answer. Is Prestige open on the TV?', 'err'); }
+          }, 15000);
+        });
+    }).catch(function (e) {
+      castMsg('Could not start casting' + (e && e.message ? ' (' + e.message + ')' : ''), 'err');
+      stopCast(false);
+    });
+  }
+
+  function stopCast(tellTv) {
+    if (tellTv && cast.id) { send({ type: 'cast-stop', id: cast.id }); }
+    if (cast.pc) { try { cast.pc.close(); } catch (e) {} }
+    if (cast.raf) { cancelAnimationFrame(cast.raf); }
+    if (cast.audio) { try { cast.audio.close(); } catch (e) {} }
+    if (cast.wake) { try { cast.wake.release(); } catch (e) {} }
+    cast.pc = null; cast.id = null; cast.raf = 0; cast.audio = null; cast.wake = null; cast.refresh = null;
+    $('stopCast').hidden = true;
+    $('castBtn').disabled = !preview.src;
+  }
+
+  function onCastMessage(s) {
+    if (!cast.pc || s.id !== cast.id) { return; }
+    if (s.type === 'cast-answer') {
+      var store = cast.parts[s.id] || (cast.parts[s.id] = { got: 0, parts: [] });
+      if (store.parts[s.part] !== undefined) { return; }
+      store.parts[s.part] = s.data; store.got += 1;
+      if (store.got === s.total) {
+        delete cast.parts[s.id];
+        cast.pc.setRemoteDescription({ type: 'answer', sdp: store.parts.join('') })
+          .then(function () { castMsg('Connecting to the TV…'); }, function (e) { castMsg('The TV sent an invalid answer: ' + e.message, 'err'); });
+      }
+    } else if (s.type === 'cast-state') {
+      if (s.state === 'stopped') { castMsg('Stopped on the TV.'); stopCast(false); preview.pause(); }
+      if (s.state === 'failed') { castMsg('The TV could not connect to this device. Same Wi-Fi?', 'err'); stopCast(false); }
+    }
+  }
+
+  preview.addEventListener('playing', function () { if (cast.refresh) { setTimeout(cast.refresh, 150); } });
+  $('castBtn').onclick = startCast;
+  $('stopCast').onclick = function () { stopCast(true); castMsg('Stopped.'); };
+  window.addEventListener('pagehide', function () { if (cast.pc) { stopCast(true); } });
+  window.prestigeRemote = { startCast: startCast, stopCast: stopCast, preview: preview, cast: cast };
+
   // ---- status from the TV
   var ws, lastStatus = 0, retry = 0, helloTimer;
   function showStatus(s) {
@@ -258,6 +440,7 @@
       if (msg.event !== 'message') { return; }
       var s; try { s = JSON.parse(msg.message); } catch (e) { return; }
       if (s && s.type === 'status') { showStatus(s); }
+      if (s && (s.type === 'cast-answer' || s.type === 'cast-state')) { onCastMessage(s); }
     };
     ws.onclose = function () { setConn('bad', 'Reconnecting…'); setTimeout(connect, Math.min(30000, 1500 * Math.pow(2, retry++))); };
   }
