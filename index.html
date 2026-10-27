@@ -62,6 +62,28 @@
   label.chk { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); margin-top: 8px; }
   .pair p { color: var(--text-2); }
   details summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
+  /* Jarvis */
+  .jarvis { --j: #5fd9ff; background: radial-gradient(120% 90% at 50% 0, rgba(95,217,255,.13), transparent 70%), var(--card); border-color: rgba(95,217,255,.25); }
+  .jarvis h2 { color: var(--j); letter-spacing: .3em; text-align: center; }
+  .mic { display: block; width: 132px; height: 132px; margin: 16px auto 4px; border-radius: 50%; padding: 0; position: relative;
+    background: radial-gradient(circle, #0e2a38 0, #08141c 70%); box-shadow: 0 0 0 2px rgba(95,217,255,.45), 0 0 34px rgba(95,217,255,.25); }
+  .mic svg { width: 54px; height: 54px; fill: none; stroke: var(--j); stroke-width: 1.8; stroke-linecap: round; }
+  .mic::after { content: ''; position: absolute; left: -10px; top: -10px; right: -10px; bottom: -10px; border-radius: 50%; border: 2px dashed rgba(95,217,255,.35); animation: spin 12s linear infinite; }
+  .mic.on { background: radial-gradient(circle, #1c5068 0, #0b2230 70%); box-shadow: 0 0 0 3px var(--j), 0 0 60px rgba(95,217,255,.6); }
+  .mic.on::after { animation-duration: 1.5s; border-color: var(--j); }
+  .mic:active { transform: scale(.96); background: radial-gradient(circle, #1c5068 0, #0b2230 70%); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .micLabel { text-align: center; color: var(--text-2); font-size: 14px; margin: 18px 0 10px; min-height: 20px; }
+  .langs { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
+  .langs button { padding: 7px 16px; font-size: 14px; border-radius: 999px; }
+  .langs button.on, .jarvis button.primary { background: var(--j); color: #04161e; font-weight: 650; }
+  input[type=text], input[type=password], select { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .said { margin-top: 12px; color: var(--text-2); font-size: 14px; }
+  .answer { margin-top: 4px; font-size: 16px; }
+  .answer.err { color: #ffb454; }
+  .ai { margin-top: 12px; }
+  .ai label { display: block; font-size: 13px; color: var(--text-2); margin: 10px 0 4px; }
+  .ai .row { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -76,6 +98,39 @@
 </div>
 
 <main id="app" hidden>
+  <section class="card jarvis" id="jarvisCard">
+    <h2>JARVIS</h2>
+    <button class="mic" id="mic" aria-label="Talk to Jarvis"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+    <div class="micLabel" id="micLabel"></div>
+    <div class="langs"><button data-lang="en-GB">English</button><button data-lang="fa-IR">فارسی</button></div>
+    <form class="row" id="askForm" autocomplete="off">
+      <input type="text" id="ask" placeholder="…or type it here" dir="auto" enterkeyhint="send">
+      <button class="primary" id="askBtn">Send</button>
+    </form>
+    <div class="said" id="said" dir="auto"></div>
+    <div class="answer" id="answer" dir="auto"></div>
+    <details class="ai">
+      <summary>AI service · <span id="aiState">checking…</span></summary>
+      <p class="muted">Built-in commands (open, play, search, pause, volume…) work without one. For anything else Jarvis asks an AI service; any OpenAI-compatible one works.</p>
+      <label for="aiPreset">Service</label>
+      <select id="aiPreset" style="width:100%">
+        <option value="https://api.avalai.ir/v1|gpt-4o-mini">AvalAI (avalai.ir)</option>
+        <option value="https://api.gapgpt.app/v1|gpt-4o-mini">GapGPT (gapgpt.app)</option>
+        <option value="https://openrouter.ai/api/v1|openai/gpt-4o-mini">OpenRouter</option>
+        <option value="https://api.openai.com/v1|gpt-4o-mini">OpenAI</option>
+        <option value="https://api.anthropic.com/v1|claude-haiku-5-5">Anthropic (Claude)</option>
+        <option value="other|">Other…</option>
+      </select>
+      <div id="aiUrlRow" hidden><label for="aiUrl">Address</label><input type="text" id="aiUrl" placeholder="https://example.com/v1" inputmode="url" autocapitalize="off" style="width:100%"></div>
+      <label for="aiKey">API key</label>
+      <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off" style="width:100%">
+      <label for="aiModel">Model</label>
+      <input type="text" id="aiModel" placeholder="gpt-4o-mini" autocapitalize="off" style="width:100%">
+      <div class="row"><button class="primary" id="aiSave" style="flex:1">Connect</button><button id="aiClear">Remove</button></div>
+      <p class="muted">The key goes once through the ntfy.sh relay to your TV and is kept only on the TV. The TV itself must reach the service: from Iran, AvalAI and GapGPT work without a VPN.</p>
+    </details>
+  </section>
+
   <section class="card">
     <h2>Play on TV</h2>
     <form class="row" id="linkForm" autocomplete="off">
@@ -411,6 +466,88 @@
   window.addEventListener('pagehide', function () { if (cast.pc) { stopCast(true); } });
   window.prestigeRemote = { startCast: startCast, stopCast: stopCast, preview: preview, cast: cast };
 
+  // ---- Jarvis: speech becomes text here, then the TV does what was asked
+  var lang = 'en-GB';
+  try { lang = localStorage.getItem('prestige.lang') || lang; } catch (e) {}
+  function paintLang() {
+    document.querySelectorAll('.langs button').forEach(function (b) { b.className = b.getAttribute('data-lang') === lang ? 'on' : ''; });
+    var fa = lang === 'fa-IR';
+    $('micLabel').textContent = !SR ? 'This browser cannot listen. Use the microphone key on your keyboard in the box below.'
+      : fa ? 'بزنید و بگویید: «آپارات رو باز کن»، «بی‌بی‌سی فارسی رو بزن»' : 'Tap and speak: "open Aparat", "play BBC Persian"';
+    $('micLabel').dir = fa && SR ? 'rtl' : 'ltr';
+  }
+  document.querySelectorAll('.langs button').forEach(function (b) {
+    b.onclick = function () { lang = b.getAttribute('data-lang'); try { localStorage.setItem('prestige.lang', lang); } catch (e) {} paintLang(); };
+  });
+
+  function ask(text) {
+    text = (text || '').trim();
+    if (!text) { return; }
+    $('said').textContent = text;
+    $('answer').textContent = '…';
+    $('answer').className = 'answer';
+    send({ type: 'ask', text: text.slice(0, 500) }).then(function (ok) { if (!ok) { $('answer').textContent = ''; } });
+  }
+  $('askForm').onsubmit = function (e) { e.preventDefault(); ask($('ask').value); $('ask').value = ''; $('ask').blur(); };
+
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null, heard = '';
+  var MIC_ERRORS = {
+    'not-allowed': 'Allow the microphone for this page', 'service-not-allowed': 'Allow the microphone for this page',
+    'network': 'Speech recognition needs the internet (it is Google\'s or Apple\'s service)',
+    'no-speech': 'I heard nothing. Try again', 'audio-capture': 'No microphone found'
+  };
+  if (!SR) { $('mic').disabled = true; }
+  paintLang();
+  $('mic').onclick = function () {
+    if (!SR) { return; }
+    if (rec) { try { rec.stop(); } catch (e) {} return; }
+    heard = '';
+    rec = new SR();
+    rec.lang = lang;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onstart = function () {
+      $('mic').className = 'mic on';
+      $('said').textContent = '';
+      $('answer').textContent = '';
+      send({ type: 'listen', on: true });
+    };
+    rec.onresult = function (ev) {
+      var text = '';
+      for (var i = 0; i < ev.results.length; i++) { text += ev.results[i][0].transcript; }
+      heard = text;
+      $('said').textContent = text;
+    };
+    rec.onerror = function (ev) { if (MIC_ERRORS[ev.error]) { toast(MIC_ERRORS[ev.error], ev.error !== 'no-speech'); } };
+    rec.onend = function () {
+      $('mic').className = 'mic';
+      rec = null;
+      if (heard.trim()) { ask(heard); } else { send({ type: 'listen', on: false }); }
+    };
+    try { rec.start(); } catch (e) { rec = null; toast('Could not start listening', true); }
+  };
+
+  // AI service: sent to the TV once; the key is not kept on this phone
+  function presetParts() { var v = $('aiPreset').value.split('|'); return { url: v[0], model: v[1] }; }
+  $('aiPreset').onchange = function () {
+    var p = presetParts();
+    $('aiUrlRow').hidden = p.url !== 'other';
+    $('aiModel').value = p.model;
+  };
+  $('aiModel').value = presetParts().model;
+  $('aiSave').onclick = function () {
+    var p = presetParts();
+    var url = (p.url === 'other' ? $('aiUrl').value : p.url).trim().replace(/\/+$/, '');
+    var key = $('aiKey').value.trim(), model = $('aiModel').value.trim();
+    if (!/^https:\/\/\S+$/.test(url)) { toast('Enter the service address, starting with https://', true); return; }
+    if (key.length < 8) { toast('Paste the API key', true); return; }
+    send({ type: 'ai-config', url: url, key: key, model: model }).then(function (ok) {
+      if (ok) { $('aiKey').value = ''; toast('Sent to the TV'); }
+    });
+  };
+  $('aiClear').onclick = function () { send({ type: 'ai-config', clear: true }); };
+
   // ---- status from the TV
   var ws, lastStatus = 0, retry = 0, helloTimer;
   function showStatus(s) {
@@ -421,6 +558,7 @@
     if (p) { $('now').querySelector('b').textContent = p.title; }
     $('volLevel').textContent = s.volume ? (s.volume.muted ? 'Muted' : 'Vol ' + s.volume.level) : 'Vol –';
     $('volRow').style.opacity = s.volume ? 1 : 0.5;
+    if (s.ai !== undefined) { $('aiState').textContent = s.ai && s.ai.host ? s.ai.host + (s.ai.model ? ' · ' + s.ai.model : '') : 'not set'; }
   }
   function connect() {
     setConn('wait', 'Connecting…');
@@ -440,6 +578,11 @@
       if (msg.event !== 'message') { return; }
       var s; try { s = JSON.parse(msg.message); } catch (e) { return; }
       if (s && s.type === 'status') { showStatus(s); }
+      if (s && s.type === 'reply') {
+        $('said').textContent = s.heard || '';
+        $('answer').textContent = s.text || '';
+        $('answer').className = 'answer' + (s.ok === false ? ' err' : '');
+      }
       if (s && (s.type === 'cast-answer' || s.type === 'cast-state')) { onCastMessage(s); }
     };
     ws.onclose = function () { setConn('bad', 'Reconnecting…'); setTimeout(connect, Math.min(30000, 1500 * Math.pow(2, retry++))); };
